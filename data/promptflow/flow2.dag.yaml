@@ -1,0 +1,128 @@
+inputs:
+  question:
+    type: string
+    is_chat_input: true
+  chat_history:
+    type: list
+    is_chat_input: false
+    is_chat_history: true
+outputs:
+  output:
+    type: string
+    reference: ${answer_the_question_with_context.output}
+    evaluation_only: false
+    is_chat_output: true
+nodes:
+- name: modify_query_with_history
+  type: llm
+  source:
+    type: code
+    path: modify_query_with_history.jinja2
+  inputs:
+    deployment_name: gpt-4-1106-preview
+    temperature: 1
+    top_p: 1
+    max_tokens: 1000
+    presence_penalty: 0
+    frequency_penalty: 0
+    chat_history: ${inputs.chat_history}
+    question: ${flow.question}
+  provider: AzureOpenAI
+  connection: gpt4turbo
+  api: chat
+  module: promptflow.tools.aoai
+  use_variants: false
+- name: embed_the_question
+  type: python
+  source:
+    type: package
+    tool: promptflow.tools.embedding.embedding
+  inputs:
+    connection: gpt4turbo
+    deployment_name: text-embedding-ada-002
+    input: ${modify_query_with_history.output}
+  aggregation: false
+  use_variants: false
+- name: search_question_from_indexed_docs
+  type: python
+  source:
+    type: package
+    tool: promptflow_vectordb.tool.vector_index_lookup.VectorIndexLookup.search
+  inputs:
+    path: azureml://subscriptions/123/resourcegroups/abc/workspaces/xyz/datastores/workspaceblobstore/paths/azureml/guid/index/
+    query: ${embed_the_question.output}
+    top_k: 2
+  aggregation: false
+  use_variants: false
+- name: generate_prompt_context
+  type: python
+  source:
+    type: code
+    path: generate_prompt_context.py
+  inputs:
+    search_result: ${search_question_from_indexed_docs.output}
+  aggregation: false
+  use_variants: false
+- name: Prompt_variants
+  use_variants: true
+- name: answer_the_question_with_context
+  type: llm
+  source:
+    type: code
+    path: answer_the_question_with_context.jinja2
+  inputs:
+    deployment_name: gpt-4-1106-preview
+    temperature: 0
+    top_p: 1
+    max_tokens: 1000
+    presence_penalty: 0
+    frequency_penalty: 0
+    prompt_text: ${Prompt_variants.output}
+  provider: AzureOpenAI
+  connection: gpt4turbo
+  api: chat
+  module: promptflow.tools.aoai
+  aggregation: false
+  use_variants: false
+node_variants:
+  Prompt_variants:
+    default_variant_id: Variant_0
+    variants:
+      Variant_0:
+        node:
+          name: Prompt_variants
+          type: prompt
+          source:
+            type: code
+            path: Prompt_variants__Variant_0.jinja2
+          inputs:
+            chat_history: ${flow.chat_history}
+            contexts: ${generate_prompt_context.output}
+            question: ${flow.question}
+          aggregation: false
+      Variant_1:
+        node:
+          name: Prompt_variants
+          type: prompt
+          source:
+            type: code
+            path: Prompt_variants__Variant_1.jinja2
+          inputs:
+            chat_history: ${flow.chat_history}
+            contexts: ${generate_prompt_context.output}
+            question: ${flow.question}
+          aggregation: false
+      Variant_2:
+        node:
+          name: Prompt_variants
+          type: prompt
+          source:
+            type: code
+            path: Prompt_variants__Variant_2.jinja2
+          inputs:
+            chat_history: ${flow.chat_history}
+            contexts: ${generate_prompt_context.output}
+            question: ${flow.question}
+          aggregation: false
+environment:
+  python_requirements_txt: requirements.txt
